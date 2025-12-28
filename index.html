@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benford's Law Analytics Dashboard</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        slate: { 850: '#151e2e', 900: '#0f172a' }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #0f172a;
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
+                radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), 
+                radial-gradient(at 100% 0%, hsla(339,49%,30%,1) 0, transparent 50%);
+            color: #f8fafc;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+        }
+
+        /* Clean Dashboard Cards (No 3D) */
+        .dashboard-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .dashboard-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+        /* Input Styling */
+        .input-field {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            transition: all 0.3s;
+        }
+        .input-field:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+            outline: none;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        
+        <!-- Header -->
+        <header class="mb-10 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-4xl font-extrabold text-white tracking-tight">
+                    Benford's <span class="text-blue-500">Validator</span>
+                </h1>
+                <p class="text-gray-400 mt-1">Forensic Data Analysis & Distribution</p>
+            </div>
+            <div class="flex gap-3">
+                <div class="text-right">
+                    <div class="text-xs text-gray-500 uppercase font-bold">Status</div>
+                    <div id="header-status" class="text-emerald-400 font-mono text-sm">Ready</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Control Panel -->
+        <section class="dashboard-card p-6 mb-8">
+            <div class="flex flex-col xl:flex-row gap-8">
+                
+                <!-- Input Section -->
+                <div class="flex-1 space-y-4">
+                    <div class="flex gap-4 border-b border-white/5 pb-2">
+                        <button onclick="switchTab('paste')" id="btn-paste" class="px-4 py-2 text-sm font-bold text-white border-b-2 border-blue-500">Text Data</button>
+                        <button onclick="switchTab('upload')" id="btn-upload" class="px-4 py-2 text-sm font-bold text-gray-500 hover:text-white">Upload File</button>
+                    </div>
+
+                    <!-- Text Area -->
+                    <div id="tab-paste" class="block">
+                        <textarea id="data-input" class="w-full h-48 rounded-xl p-4 input-field font-mono text-sm resize-none" placeholder="Paste numbers here (CSV, space or line separated)..."></textarea>
+                        <div class="flex justify-between mt-2 px-2 text-xs text-gray-500">
+                            <span id="record-count-label">Records: 0</span>
+                            <span>Supports up to 2M records</span>
+                        </div>
+                    </div>
+
+                    <!-- File Upload -->
+                    <div id="tab-upload" class="hidden">
+                        <div class="border-2 border-dashed border-white/10 rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-colors" onclick="document.getElementById('file-input').click()">
+                            <input type="file" id="file-input" class="hidden" accept=".csv,.txt,.json">
+                            <svg class="w-10 h-10 text-gray-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                            <p class="text-gray-400 font-medium">Click or Drop to Upload</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Generator & Action Section -->
+                <div class="xl:w-96 flex flex-col gap-4 border-l border-white/5 xl:pl-8">
+                    
+                    <!-- Generator -->
+                    <div class="bg-white/5 p-5 rounded-xl border border-white/5">
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-3">Sample Data Generator</label>
+                        <div class="flex gap-2">
+                            <input type="number" id="sample-size" value="50000" min="1000" max="2000000" class="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-blue-500 focus:outline-none">
+                            <button onclick="generateBigData()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors">
+                                Generate
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-gray-500 mt-2">Uses Log-Normal distribution algorithm.</p>
+                    </div>
+
+                    <!-- Options -->
+                    <div class="flex items-center gap-3 text-sm text-gray-400">
+                        <input type="checkbox" id="skip-header" checked class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500">
+                        <label for="skip-header">Skip first row (Header)</label>
+                    </div>
+
+                    <!-- Analyze Button -->
+                    <button onclick="analyzeData()" class="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-900/30 transition-all">
+                        Run Analysis
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Stats Summary Strip -->
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 hidden" id="stats-summary">
+            <div class="dashboard-card p-4 border-l-4 border-l-blue-500">
+                <div class="text-xs text-gray-400 uppercase font-bold">Total Items</div>
+                <div id="total-count" class="text-2xl font-mono text-white mt-1">0</div>
+            </div>
+            <div class="dashboard-card p-4 border-l-4 border-l-purple-500">
+                <div class="text-xs text-gray-400 uppercase font-bold">Chi-Square</div>
+                <div id="chi-squared" class="text-2xl font-mono text-white mt-1">0.00</div>
+            </div>
+            <div class="dashboard-card p-4 border-l-4 border-l-emerald-500">
+                <div class="text-xs text-gray-400 uppercase font-bold">Max Deviation</div>
+                <div id="max-deviation" class="text-2xl font-mono text-white mt-1">0%</div>
+            </div>
+            <div class="dashboard-card p-4 border-l-4 border-l-pink-500">
+                <div class="text-xs text-gray-400 uppercase font-bold">Verdict</div>
+                <div id="verdict" class="text-lg font-bold text-white mt-1">-</div>
+            </div>
+        </section>
+
+        <!-- Charts Grid -->
+        <section id="charts-section" class="hidden space-y-6">
+            
+            <!-- Row 1: Main Distribution (Full Width) -->
+            <div class="dashboard-card p-6">
+                <h3 class="text-lg font-bold text-white mb-4">Leading Digit Distribution (Observed vs Expected)</h3>
+                <div class="relative h-[300px] w-full">
+                    <canvas id="mainBarChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Row 2: Analysis Charts (2 Columns) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Radar Chart -->
+                <div class="dashboard-card p-6">
+                    <h3 class="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wide">Distribution Shape (Radar)</h3>
+                    <div class="relative h-[250px] w-full flex justify-center">
+                        <canvas id="radarChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Cumulative Line Chart -->
+                <div class="dashboard-card p-6">
+                    <h3 class="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wide">Cumulative Frequency</h3>
+                    <div class="relative h-[250px] w-full">
+                        <canvas id="cumulativeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: Statistical Analysis (3 Columns) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                <!-- Trend Line -->
+                <div class="dashboard-card p-6">
+                    <h3 class="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wide">Smooth Trend</h3>
+                    <div class="relative h-[200px] w-full">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Z-Scores -->
+                <div class="dashboard-card p-6">
+                    <h3 class="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wide">Z-Scores (Significance)</h3>
+                    <div class="relative h-[200px] w-full">
+                        <canvas id="zScoreChart"></canvas>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-2 text-center">Z > 2 or Z < -2 indicates anomaly.</p>
+                </div>
+
+                <!-- Deviation Bar -->
+                <div class="dashboard-card p-6">
+                    <h3 class="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wide">Percentage Deviation</h3>
+                    <div class="relative h-[200px] w-full">
+                        <canvas id="deviationChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 4: Pie & Table -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Doughnut -->
+                <div class="dashboard-card p-6">
+                    <h3 class="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wide">Composition</h3>
+                    <div class="relative h-[250px] w-full flex justify-center">
+                        <canvas id="doughnutChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="dashboard-card p-6 lg:col-span-2 overflow-hidden">
+                    <h3 class="text-lg font-bold text-white mb-4">Detailed Breakdown</h3>
+                    <div class="overflow-x-auto h-[250px] overflow-y-auto">
+                        <table class="w-full text-sm text-left text-gray-300">
+                            <thead class="text-xs uppercase bg-white/5 text-gray-400 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3">Digit</th>
+                                    <th class="px-4 py-3">Expected %</th>
+                                    <th class="px-4 py-3">Observed %</th>
+                                    <th class="px-4 py-3">Diff %</th>
+                                    <th class="px-4 py-3 text-right">Z-Score</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body" class="divide-y divide-white/5">
+                                <!-- Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <script>
+        // --- Constants ---
+        const BENFORD_PROBS = {
+            1: 0.3010, 2: 0.1761, 3: 0.1249, 4: 0.0969,
+            5: 0.0792, 6: 0.0669, 7: 0.0580, 8: 0.0512, 9: 0.0458
+        };
+
+        // --- State ---
+        let rawData = "";
+        let isFileLoaded = false;
+        let charts = {}; // Store all chart instances
+
+        // --- Logic ---
+        function switchTab(tab) {
+            document.getElementById('tab-paste').classList.toggle('hidden', tab !== 'paste');
+            document.getElementById('tab-upload').classList.toggle('hidden', tab !== 'upload');
+            
+            const btnPaste = document.getElementById('btn-paste');
+            const btnUpload = document.getElementById('btn-upload');
+
+            if (tab === 'paste') {
+                btnPaste.classList.add('text-white', 'border-blue-500');
+                btnPaste.classList.remove('text-gray-500');
+                btnUpload.classList.remove('text-white', 'border-blue-500');
+                btnUpload.classList.add('text-gray-500');
+            } else {
+                btnUpload.classList.add('text-white', 'border-blue-500');
+                btnUpload.classList.remove('text-gray-500');
+                btnPaste.classList.remove('text-white', 'border-blue-500');
+                btnPaste.classList.add('text-gray-500');
+            }
+        }
+
+        function generateBigData() {
+            const countInput = document.getElementById('sample-size');
+            let count = parseInt(countInput.value);
+            
+            if (isNaN(count) || count < 100) count = 1000;
+            if (count > 2000000) {
+                count = 2000000;
+                countInput.value = 2000000;
+            }
+
+            const inputArea = document.getElementById('data-input');
+            const label = document.getElementById('record-count-label');
+            
+            inputArea.value = "Generating data...";
+            inputArea.disabled = true;
+
+            setTimeout(() => {
+                function randn_bm() {
+                    let u = 0, v = 0;
+                    while(u === 0) u = Math.random();
+                    while(v === 0) v = Math.random();
+                    return Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+                }
+
+                const data = [];
+                for (let i = 0; i < count; i++) {
+                    let z = randn_bm(); 
+                    let val = Math.exp(5 + (1.0 * z)); // Log-Normal
+                    val = val * (0.95 + (Math.random() * 0.1));
+                    data.push(val.toFixed(2));
+                }
+
+                const dataString = data.join('\n');
+                rawData = dataString;
+                isFileLoaded = false;
+                
+                const sample = rawData.split('\n').slice(0, 100).join('\n') + `\n... [${count.toLocaleString()} hidden]`;
+                
+                inputArea.value = sample;
+                inputArea.disabled = false;
+                label.innerText = `Generated: ${count.toLocaleString()} records`;
+                
+                switchTab('paste');
+                analyzeData();
+            }, 50);
+        }
+
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                rawData = e.target.result;
+                isFileLoaded = true;
+                switchTab('paste');
+                document.getElementById('data-input').value = rawData.substring(0, 5000);
+                document.getElementById('record-count-label').innerText = `File: ${file.name}`;
+            };
+            reader.readAsText(file);
+        });
+
+        function analyzeData() {
+            let dataString = isFileLoaded ? rawData : document.getElementById('data-input').value;
+            
+            // Handle internal raw data if textarea is just a preview
+            if (!isFileLoaded && document.getElementById('data-input').value.includes('hidden')) {
+                if (!rawData) return;
+                dataString = rawData;
+            }
+
+            if (!dataString.trim()) return;
+
+            // Extract
+            const numbers = extractNumbers(dataString);
+            if (numbers.length === 0) return;
+
+            // Count
+            const counts = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0};
+            let total = 0;
+            
+            numbers.forEach(num => {
+                const d = getFirstDigit(num);
+                if (d && counts.hasOwnProperty(d)) {
+                    counts[d]++;
+                    total++;
+                }
+            });
+
+            if (total === 0) return;
+
+            // Statistics
+            const stats = [];
+            let chiSq = 0;
+            let cumulative = 0;
+            let maxDev = 0;
+
+            for (let i = 1; i <= 9; i++) {
+                const obsCount = counts[i];
+                const obsPct = (obsCount / total) * 100;
+                const expPct = BENFORD_PROBS[i] * 100;
+                const expCount = total * BENFORD_PROBS[i];
+                const diff = obsPct - expPct;
+
+                // Z-Score: (Obs - Exp) / sqrt(Exp)
+                const zScore = expCount > 0 ? (obsCount - expCount) / Math.sqrt(expCount) : 0;
+
+                if (expCount > 0) chiSq += Math.pow(obsCount - expCount, 2) / expCount;
+                if (Math.abs(diff) > maxDev) maxDev = Math.abs(diff);
+
+                cumulative += obsPct;
+
+                stats.push({ digit: i, obsPct, expPct, diff, zScore, cumulative });
+            }
+
+            // UI Updates
+            document.getElementById('charts-section').classList.remove('hidden');
+            document.getElementById('stats-summary').classList.remove('hidden');
+            document.getElementById('header-status').innerText = "Analysis Complete";
+            document.getElementById('header-status').className = "text-emerald-400 font-mono text-sm font-bold";
+
+            document.getElementById('total-count').innerText = total.toLocaleString();
+            document.getElementById('chi-squared').innerText = chiSq.toFixed(2);
+            document.getElementById('max-deviation').innerText = maxDev.toFixed(2) + "%";
+
+            const isPass = chiSq < 15.507;
+            const verdictEl = document.getElementById('verdict');
+            verdictEl.innerText = isPass ? "VALID" : "ANOMALY";
+            verdictEl.className = `text-lg font-bold mt-1 ${isPass ? 'text-emerald-400' : 'text-red-400'}`;
+
+            renderTable(stats);
+            renderAllCharts(stats);
+        }
+
+        function extractNumbers(text) {
+            const regex = /-?\d+(?:,\d+)*(?:\.\d+)?/g;
+            const matches = text.match(regex);
+            if (!matches) return [];
+            return matches.map(m => parseFloat(m.replace(/,/g, ''))).filter(n => !isNaN(n));
+        }
+
+        function getFirstDigit(num) {
+            let n = Math.abs(num);
+            if (n === 0) return null;
+            while (n >= 10) n = Math.floor(n / 10);
+            return n;
+        }
+
+        // --- Renderers ---
+        function renderTable(stats) {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+            
+            stats.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-white/5 transition-colors";
+                const color = s.diff > 0 ? 'text-emerald-400' : (s.diff < 0 ? 'text-red-400' : 'text-gray-400');
+                const sign = s.diff > 0 ? '+' : '';
+                
+                // Highlight significant Z-scores
+                const zClass = Math.abs(s.zScore) > 2 ? "text-yellow-400 font-bold" : "text-gray-400";
+
+                tr.innerHTML = `
+                    <td class="px-4 py-2 font-bold text-white text-lg">${s.digit}</td>
+                    <td class="px-4 py-2 text-gray-400">${s.expPct.toFixed(2)}%</td>
+                    <td class="px-4 py-2 text-blue-300 font-mono">${s.obsPct.toFixed(2)}%</td>
+                    <td class="px-4 py-2 ${color}">${sign}${s.diff.toFixed(2)}%</td>
+                    <td class="px-4 py-2 text-right font-mono ${zClass}">${s.zScore.toFixed(2)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderAllCharts(stats) {
+            const labels = stats.map(s => s.digit.toString());
+            const obsData = stats.map(s => s.obsPct);
+            const expData = stats.map(s => s.expPct);
+            const diffData = stats.map(s => s.diff);
+            const zData = stats.map(s => s.zScore);
+            const cumData = stats.map(s => s.cumulative);
+            const cumExp = stats.map((s, i) => {
+                // Calculate cumulative expected manually
+                let sum = 0;
+                for(let j=1; j<=i+1; j++) sum += (BENFORD_PROBS[j]*100);
+                return sum;
+            });
+
+            // Destroy existing
+            Object.values(charts).forEach(c => c.destroy());
+            
+            // Chart Defaults
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = 'Inter';
+            Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
+
+            // 1. Main Bar Chart
+            const ctxMain = document.getElementById('mainBarChart').getContext('2d');
+            charts.main = new Chart(ctxMain, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Observed', data: obsData, backgroundColor: '#3b82f6', borderRadius: 6 },
+                        { label: 'Expected', data: expData, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 6 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { max: 35 } } }
+            });
+
+            // 2. Radar Chart
+            const ctxRadar = document.getElementById('radarChart').getContext('2d');
+            charts.radar = new Chart(ctxRadar, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Observed', data: obsData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)' },
+                        { label: 'Expected', data: expData, borderColor: '#a855f7', borderDash: [5,5] }
+                    ]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    scales: { r: { ticks: { display: false }, grid: { color: 'rgba(255,255,255,0.1)' }, pointLabels: { color: 'white' } } }
+                }
+            });
+
+            // 3. Cumulative Line Chart
+            const ctxCum = document.getElementById('cumulativeChart').getContext('2d');
+            charts.cum = new Chart(ctxCum, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Observed Cumulative', data: cumData, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.4 },
+                        { label: 'Expected Cumulative', data: cumExp, borderColor: '#94a3b8', borderDash: [5,5], tension: 0.4 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { max: 100 } } }
+            });
+
+            // 4. Trend Line (Smooth)
+            const ctxTrend = document.getElementById('trendChart').getContext('2d');
+            charts.trend = new Chart(ctxTrend, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Frequency', data: obsData, borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.2)', fill: true, tension: 0.5 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } } } }
+            });
+
+            // 5. Z-Score Bar (Anomaly Detection)
+            const ctxZ = document.getElementById('zScoreChart').getContext('2d');
+            const zColors = zData.map(z => Math.abs(z) > 2 ? '#ef4444' : (Math.abs(z) > 1.5 ? '#fbbf24' : '#3b82f6'));
+            charts.z = new Chart(ctxZ, {
+                type: 'bar',
+                data: { labels: labels, datasets: [{ label: 'Z-Score', data: zData, backgroundColor: zColors, borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' } } } }
+            });
+
+            // 6. Deviation Bar
+            const ctxDev = document.getElementById('deviationChart').getContext('2d');
+            const devColors = diffData.map(d => d > 0 ? '#10b981' : '#ef4444');
+            charts.dev = new Chart(ctxDev, {
+                type: 'bar',
+                data: { labels: labels, datasets: [{ label: 'Deviation %', data: diffData, backgroundColor: devColors, borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } } } }
+            });
+
+            // 7. Doughnut
+            const ctxDoughnut = document.getElementById('doughnutChart').getContext('2d');
+            charts.doughnut = new Chart(ctxDoughnut, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{ data: obsData, backgroundColor: ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#f97316', '#eab308'], borderWidth: 0 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '65%' }
+            });
+        }
+    </script>
+</body>
+</html>
